@@ -1,0 +1,218 @@
+.app-container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 2rem;
+  font-family: system-ui, -apple-system, sans-serif;
+  color: white;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+/* --- Requisito: Indicador LED --- */
+.status-indicator {
+  display: flex;
+  align-items: center;
+  font-weight: 500;
+  background-color: #242424;
+  padding: 8px 16px;
+  border-radius: 20px;
+}
+
+.led {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-right: 10px;
+}
+
+.led-green {
+  background-color: #4ade80;
+  box-shadow: 0 0 10px #4ade80;
+}
+
+.led-red {
+  background-color: #f87171;
+  box-shadow: 0 0 10px #f87171;
+}
+
+/* --- Requisito: Zona de Drop --- */
+.drop-zone {
+  border: 3px dashed #646cff;
+  border-radius: 16px;
+  padding: 60px 20px;
+  text-align: center;
+  background-color: #1a1a1a;
+  transition: all 0.3s ease; /* Transición suave */
+  cursor: pointer;
+  margin-bottom: 2rem;
+}
+
+/* El "hover effect" que piden cuando arrastras un archivo */
+.drop-zone.active {
+  background-color: rgba(100, 108, 255, 0.2);
+  border-color: #535bf2;
+  transform: scale(1.02); /* Se agranda un poquito */
+}
+
+.drop-zone h2 {
+  margin: 0 0 10px 0;
+  color: #fff;
+}
+
+.drop-zone p {
+  margin: 0;
+  color: #888;
+}
+
+/* --- Panel de Dispositivos --- */
+.devices-panel {
+  background-color: #242424;
+  padding: 20px;
+  border-radius: 12px;
+}
+
+.devices-panel h3 {
+  margin-top: 0;
+  border-bottom: 1px solid #444;
+  padding-bottom: 10px;
+}
+
+.no-devices {
+  color: #888;
+  font-style: italic;
+  text-align: center;
+}
+
+.transfer-monitor {
+  background-color: #242424;
+  border: 1px solid #444;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 2rem;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+.transfer-monitor h3 {
+  margin: 0 0 10px 0;
+  color: #646cff;
+}
+
+.file-name {
+  font-family: monospace;
+  color: #ccc;
+  margin-bottom: 15px;
+}
+
+.progress-container {
+  width: 100%;
+  height: 20px;
+  background-color: #1a1a1a;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #646cff, #4ade80);
+  border-radius: 10px;
+  transition: width 0.3s ease;
+}
+
+.progress-bar.error {
+  background: #f87171;
+}
+
+.transfer-details {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9em;
+  color: #aaa;
+}
+
+.file-ready {
+  margin-top: 20px;
+  padding: 10px;
+  background-color: #2a2a2a;
+  border-radius: 8px;
+}
+
+.file-ready strong {
+  color: #4ade80;
+}
+
+.file-ready span {
+  font-size: 0.9em;
+  color: #ccc;
+}
+
+.device-item {
+  padding: 10px;
+  border-bottom: 1px solid #444;
+}
+
+.device-item:last-child {
+  border-bottom: none;
+}
+
+/* --- Estilos para el Modal de Confirmación (Handshake) --- */
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.modal-content {
+  background-color: #242424;
+  padding: 30px;
+  border-radius: 12px;
+  border: 1px solid #444;
+  text-align: center;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+  min-width: 300px;
+}
+
+.file-size {
+  color: #888;
+  font-size: 0.9em;
+  margin-bottom: 25px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+}
+
+.btn-reject, .btn-accept {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.btn-reject {
+  background-color: #f87171;
+  color: white;
+}
+
+.btn-accept {
+  background-color: #4ade80;
+  color: black;
+}
+
+.btn-reject:hover, .btn-accept:hover {
+  opacity: 0.8;
+}
