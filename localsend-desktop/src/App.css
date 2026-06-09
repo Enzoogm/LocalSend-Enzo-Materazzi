@@ -1,11 +1,31 @@
-.app-container {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 2rem;
-  font-family: system-ui, -apple-system, sans-serif;
-  color: white;
+body, html {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 100vh;
+  background-color: #1a1a1a; /* Fondo oscuro para toda la ventana de Windows */
 }
 
+#root {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center; /* Esto fuerza a que la caja esté en el medio horizontal */
+}
+
+/* --- TU CONTENEDOR PRINCIPAL --- */
+.app-container {
+  width: 100%;
+  max-width: 800px;
+  margin: 40px auto; /* 40px de espacio arriba, y auto a los costados para el centro perfecto */
+  padding: 2rem;
+  box-sizing: border-box;
+  font-family: system-ui, -apple-system, sans-serif;
+  color: white;
+  text-align: center; /* Centramos el texto general */
+}
+
+/* --- Arreglo del Header --- */
 .header {
   display: flex;
   justify-content: space-between;
@@ -13,14 +33,27 @@
   margin-bottom: 2rem;
 }
 
+.header-left {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+}
+
+.header h1 {
+  margin: 0 0 10px 0;
+  font-size: 2.5em;
+}
+
 /* --- Requisito: Indicador LED --- */
 .status-indicator {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   font-weight: 500;
   background-color: #242424;
   padding: 8px 16px;
   border-radius: 20px;
+  font-size: 0.9em;
 }
 
 .led {
@@ -46,17 +79,16 @@
   border-radius: 16px;
   padding: 60px 20px;
   text-align: center;
-  background-color: #1a1a1a;
-  transition: all 0.3s ease; /* Transición suave */
+  background-color: #242424;
+  transition: all 0.3s ease;
   cursor: pointer;
   margin-bottom: 2rem;
 }
 
-/* El "hover effect" que piden cuando arrastras un archivo */
 .drop-zone.active {
   background-color: rgba(100, 108, 255, 0.2);
   border-color: #535bf2;
-  transform: scale(1.02); /* Se agranda un poquito */
+  transform: scale(1.02);
 }
 
 .drop-zone h2 {
@@ -74,6 +106,7 @@
   background-color: #242424;
   padding: 20px;
   border-radius: 12px;
+  text-align: left;
 }
 
 .devices-panel h3 {
@@ -95,6 +128,7 @@
   padding: 20px;
   margin-bottom: 2rem;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  text-align: left;
 }
 
 .transfer-monitor h3 {
@@ -106,6 +140,7 @@
   font-family: monospace;
   color: #ccc;
   margin-bottom: 15px;
+  word-break: break-all;
 }
 
 .progress-container {
@@ -149,18 +184,25 @@
 .file-ready span {
   font-size: 0.9em;
   color: #ccc;
+  word-break: break-all;
 }
 
 .device-item {
-  padding: 10px;
+  padding: 12px;
   border-bottom: 1px solid #444;
+  transition: background-color 0.2s;
+  border-radius: 6px;
+}
+
+.device-item:hover {
+  background-color: #333;
 }
 
 .device-item:last-child {
   border-bottom: none;
 }
 
-/* --- Estilos para el Modal de Confirmación (Handshake) --- */
+/* --- Estilos para los Modales --- */
 .modal-overlay {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
@@ -179,7 +221,13 @@
   border: 1px solid #444;
   text-align: center;
   box-shadow: 0 10px 25px rgba(0,0,0,0.5);
-  min-width: 300px;
+  min-width: 350px;
+  max-width: 90%;
+}
+
+.modal-content h2 {
+  margin-top: 0;
+  margin-bottom: 20px;
 }
 
 .file-size {
@@ -192,6 +240,7 @@
   display: flex;
   gap: 15px;
   justify-content: center;
+  margin-top: 20px;
 }
 
 .btn-reject, .btn-accept {
@@ -201,6 +250,7 @@
   font-weight: bold;
   cursor: pointer;
   transition: opacity 0.2s;
+  font-size: 1em;
 }
 
 .btn-reject {
@@ -215,4 +265,28 @@
 
 .btn-reject:hover, .btn-accept:hover {
   opacity: 0.8;
+}
+
+.settings-input {
+  width: 100%;
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid #555;
+  background-color: #1a1a1a;
+  color: #fff;
+  font-size: 1em;
+  box-sizing: border-box;
+}
+
+.settings-input:disabled {
+  background-color: #333;
+  color: #888;
+  border-color: #444;
+}
+
+.settings-label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+  text-align: left;
 }

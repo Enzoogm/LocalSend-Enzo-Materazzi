@@ -24,11 +24,23 @@ function App() {
   const [transferStatus, setTransferStatus] = useState<'idle' | 'transferring' | 'success' | 'error'>('idle')
   const [stats, setStats] = useState<TransferStats | null>(null)
   const [errorMessage, setErrorMessage] = useState('')
-  
   const [incomingRequest, setIncomingRequest] = useState<{fileName: string, size: number} | null>(null)
+
+  // ESTADOS PARA LA CONFIGURACIÓN
+  const [showSettings, setShowSettings] = useState(false)
+  const [currentSettings, setCurrentSettings] = useState({ alias: '', downloadPath: '' })
+  const [aliasInput, setAliasInput] = useState('')
 
   useEffect(() => {
     if (window.ipcRenderer) {
+      window.ipcRenderer.send('get-settings')
+
+      window.ipcRenderer.on('settings-loaded', (data: any) => {
+        setCurrentSettings(data)
+        setAliasInput(data.alias)
+        setShowSettings(false) 
+      })
+
       window.ipcRenderer.on('device-found', (newDevice: Omit<Device, 'lastSeen'>) => {
         setDevices((prev) => {
           const exists = prev.find(d => d.ip === newDevice.ip)
@@ -61,14 +73,13 @@ function App() {
         }
       })
       
-      // Manejadores para la visualización del emisor (opcional para la UI, pero bueno tenerlo)
       window.ipcRenderer.on('send-complete', (result: { status: 'success'|'error', message?: string }) => {
           if(result.status === 'success') {
               alert('¡Archivo enviado con éxito!')
           } else {
               alert(`Error al enviar: ${result.message}`)
           }
-          setDroppedFiles([]) // Limpiamos la zona de drop
+          setDroppedFiles([]) 
       })
     }
 
@@ -108,23 +119,58 @@ function App() {
     setIncomingRequest(null)
   }
 
-  // --- NUEVA FUNCIÓN: El Gatillo ---
   const handleSendToDevice = (targetIp: string) => {
     if (droppedFiles.length === 0) {
       alert('Primero arrastrá un archivo a la zona punteada.')
       return
     }
-    
     if (window.ipcRenderer) {
-      window.ipcRenderer.send('send-file', { 
-        filePath: droppedFiles[0], 
-        targetIp: targetIp 
-      })
+      window.ipcRenderer.send('send-file', { filePath: droppedFiles[0], targetIp: targetIp })
+    }
+  }
+
+  const saveSettings = () => {
+    if (window.ipcRenderer) {
+      window.ipcRenderer.send('save-settings', aliasInput)
     }
   }
 
   return (
     <div className="app-container">
+      
+      {/* Modal de Configuración */}
+      {showSettings && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <h2>⚙️ Configuración</h2>
+            <div style={{ marginBottom: '15px' }}>
+              <label className="settings-label">Tu Alias en la red:</label>
+              <input 
+                type="text" 
+                value={aliasInput} 
+                onChange={(e) => setAliasInput(e.target.value)}
+                className="settings-input"
+              />
+            </div>
+            <div style={{ marginBottom: '20px' }}>
+              <label className="settings-label">Carpeta de descargas:</label>
+              <input 
+                type="text" 
+                value={currentSettings.downloadPath} 
+                disabled
+                className="settings-input"
+              />
+              <small style={{ color: '#aaa', display: 'block', textAlign: 'left', marginTop: '5px' }}>*La ruta de descargas es de solo lectura por ahora.</small>
+            </div>
+            <div className="modal-actions">
+              <button className="btn-reject" onClick={() => setShowSettings(false)}>Cancelar</button>
+              <button className="btn-accept" onClick={saveSettings}>Guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Oscuro de Confirmación */}
       {incomingRequest && (
         <div className="modal-overlay">
           <div className="modal-content">
@@ -141,11 +187,21 @@ function App() {
       )}
 
       <header className="header">
-        <h1>LocalSend Clone</h1>
-        <div className="status-indicator">
-          <span className={`led ${isListening ? 'led-green' : 'led-red'}`}></span>
-          {isListening ? 'Servidor Activo (Puerto 53317/53318)' : 'Servidor Apagado'}
+        <div className="header-left">
+          <h1>LocalSend</h1>
+          <div className="status-indicator">
+            <span className={`led ${isListening ? 'led-green' : 'led-red'}`}></span>
+            {isListening ? `Activo como: ${currentSettings.alias}` : 'Servidor Apagado'}
+          </div>
         </div>
+        <button 
+          onClick={() => setShowSettings(true)}
+          style={{ background: '#242424', border: '1px solid #444', color: '#fff', padding: '10px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', transition: 'background 0.2s' }}
+          onMouseOver={(e) => e.currentTarget.style.background = '#333'}
+          onMouseOut={(e) => e.currentTarget.style.background = '#242424'}
+        >
+          ⚙️ Ajustes
+        </button>
       </header>
 
       <main>
@@ -158,7 +214,7 @@ function App() {
             </div>
             <div className="transfer-details">
               <span>{stats.progress}% Completado</span>
-              {transferStatus === 'transferring' && <span>🚀 {stats.speed} MB/s | ⏱️ {stats.eta}s restantes</span>}
+              {transferStatus === 'transferring' && <span>🚀 {stats.speed} MB/s</span>}
               {transferStatus === 'success' && <span style={{color: '#4ade80'}}>¡Transferencia completada!</span>}
               {transferStatus === 'error' && <span style={{color: '#f87171'}}>Error: {errorMessage}</span>}
             </div>

@@ -6,6 +6,7 @@ import dgram from 'node:dgram'
 import os from 'node:os'
 import http from 'node:http'
 import fs from 'node:fs'
+import Store from 'electron-store' // <-- NUESTRA MEMORIA
 
 const require = createRequire(import.meta.url)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -19,6 +20,14 @@ export const RENDERER_DIST = path.join(process.env.APP_ROOT, 'dist')
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 'public') : RENDERER_DIST
 
 let win: BrowserWindow | null
+
+// Inicializamos la base de datos local
+const store = new Store({
+  defaults: {
+    alias: os.hostname(), // Por defecto usa el de Windows
+    downloadPath: app.getPath('downloads')
+  }
+})
 
 function createWindow() {
   win = new BrowserWindow({
@@ -43,7 +52,7 @@ function createWindow() {
   }
 }
 
-// --- HITO 1: Radar UDP (Actualizado con Ping y Scanner) ---
+// --- HITO 1: Radar UDP ---
 function startUDPServer() {
   const udpServer = dgram.createSocket('udp4')
 
@@ -55,42 +64,32 @@ function startUDPServer() {
   udpServer.on('message', (msg, rinfo) => {
     const text = msg.toString()
 
-    // 1. Si alguien grita buscando equipos, le respondemos con nuestros datos
     if (text === 'LOCALSEND_DISCOVERY') {
       const responseInfo = {
-        alias: os.hostname(), 
+        alias: store.get('alias') as string, // AHORA LEE DE LA MEMORIA
         deviceType: 'desktop',
         tcpPort: 53318 
       }
       const responseBuffer = Buffer.from(JSON.stringify(responseInfo))
       udpServer.send(responseBuffer, 0, responseBuffer.length, rinfo.port, rinfo.address)
     } 
-    // 2. Si recibimos un JSON, significa que alguien nos respondió
     else {
       try {
         const data = JSON.parse(text)
         if (data.alias && data.deviceType) {
-          // Le avisamos a la vista de React que encontramos un equipo (incluyéndonos a nosotros mismos)
           win?.webContents.send('device-found', {
             alias: data.alias,
-            ip: rinfo.address, // La IP real de donde vino el mensaje
+            ip: rinfo.address, 
             deviceType: data.deviceType
           })
         }
-      } catch (error) {
-        // Si el mensaje no es un JSON válido, lo ignoramos para que no crashee
-      }
+      } catch (error) {}
     }
   })
 
   udpServer.bind(53317, () => {
     console.log('🟢 Servidor UDP escuchando en el puerto 53317 (Radar Activo)')
-    
-    // --- EL RADAR ACTIVO ---
-    // Le damos permiso al socket de Windows para mandar mensajes a toda la red (Broadcast)
     udpServer.setBroadcast(true)
-
-    // Cada 3 segundos mandamos un pulso preguntando "¿Quién está ahí?"
     setInterval(() => {
       const ping = Buffer.from('LOCALSEND_DISCOVERY')
       udpServer.send(ping, 0, ping.length, 53317, '255.255.255.255')
@@ -113,21 +112,20 @@ function startFileServer() {
 
       ipcMain.once('transfer-response', (event, response) => {
         if (response === 'reject') {
-          console.log('❌ Transferencia rechazada por el usuario.')
           res.writeHead(403, { 'Content-Type': 'text/plain' })
           res.end('Transferencia rechazada')
           req.destroy()
           return
         }
 
-        console.log('✅ Transferencia aceptada, abriendo válvulas...')
-
-        let finalPath = path.join(app.getPath('downloads'), fileName)
+        // LEEMOS LA CARPETA DESDE LA MEMORIA
+        const currentDownloadPath = store.get('downloadPath') as string
+        let finalPath = path.join(currentDownloadPath, fileName)
         let counter = 1
         while (fs.existsSync(finalPath)) {
           const ext = path.extname(fileName)
           const nameWithoutExt = path.basename(fileName, ext)
-          finalPath = path.join(app.getPath('downloads'), `${nameWithoutExt}_(${counter})${ext}`)
+          finalPath = path.join(currentDownloadPath, `${nameWithoutExt}_(${counter})${ext}`)
           counter++
         }
 
@@ -136,10 +134,7 @@ function startFileServer() {
         }
 
         win?.webContents.send('transfer-progress', {
-          fileName: path.basename(finalPath),
-          progress: 0,
-          speed: '0.00',
-          eta: 0
+          fileName: path.basename(finalPath), progress: 0, speed: '0.00', eta: 0
         })
 
         const writeStream = fs.createWriteStream(finalPath)
@@ -156,12 +151,9 @@ function startFileServer() {
           if (timeDiff >= 0.5) {
             const speedBps = bytesSinceLastCalc / timeDiff
             const speedMBps = (speedBps / (1024 * 1024)).toFixed(2)
-            const remainingBytes = totalSize - receivedBytes
-            const etaSeconds = speedBps > 0 ? Math.round(remainingBytes / speedBps) : 0
             const progress = totalSize > 0 ? Math.round((receivedBytes / totalSize) * 100) : 0
-
             win?.webContents.send('transfer-progress', {
-              fileName: path.basename(finalPath), progress, speed: speedMBps, eta: etaSeconds
+              fileName: path.basename(finalPath), progress, speed: speedMBps, eta: 0
             })
             lastTime = now
             bytesSinceLastCalc = 0
@@ -175,9 +167,6 @@ function startFileServer() {
           win?.webContents.send('transfer-complete', { status: 'success', path: finalPath })
           res.writeHead(200)
           res.end('Archivo recibido con éxito')
-          if (Notification.isSupported()) {
-            new Notification({ title: 'Transferencia Completa', body: `Se guardó ${path.basename(finalPath)}` }).show()
-          }
         })
 
         writeStream.on('error', (err) => {
@@ -203,43 +192,26 @@ function startFileServer() {
   })
 }
 
-// --- HITO 4: El Cañón Emisor (Mandar archivos a otros) ---
+// --- HITO 4: El Cañón Emisor ---
 ipcMain.on('send-file', (event, data: { filePath: string, targetIp: string }) => {
   const { filePath, targetIp } = data
   const fileName = path.basename(filePath)
   const stat = fs.statSync(filePath)
   const totalSize = stat.size
 
-  console.log(`🚀 Iniciando envío de ${fileName} hacia ${targetIp}`)
-
   const options = {
-    hostname: targetIp,
-    port: 53318,
-    path: '/',
-    method: 'POST',
-    headers: {
-      'x-file-name': encodeURIComponent(fileName),
-      'content-length': totalSize
-    }
+    hostname: targetIp, port: 53318, path: '/', method: 'POST',
+    headers: { 'x-file-name': encodeURIComponent(fileName), 'content-length': totalSize }
   }
 
   const req = http.request(options, (res) => {
-    if (res.statusCode === 200) {
-      console.log('✅ Archivo enviado y aceptado por el receptor.')
-      win?.webContents.send('send-complete', { status: 'success' })
-    } else if (res.statusCode === 403) {
-      console.log('❌ El receptor rechazó el archivo.')
-      win?.webContents.send('send-complete', { status: 'error', message: 'El usuario rechazó la transferencia' })
-    }
+    if (res.statusCode === 200) win?.webContents.send('send-complete', { status: 'success' })
+    else if (res.statusCode === 403) win?.webContents.send('send-complete', { status: 'error', message: 'El usuario rechazó la transferencia' })
   })
 
-  req.on('error', (e) => {
-    console.error(`❌ Error al conectar con el equipo: ${e.message}`)
-    win?.webContents.send('send-complete', { status: 'error', message: 'No se pudo conectar con el dispositivo' })
-  })
+  req.on('error', (e) => win?.webContents.send('send-complete', { status: 'error', message: 'No se pudo conectar' }))
 
   const readStream = fs.createReadStream(filePath)
-  
   let sentBytes = 0
   let lastTime = Date.now()
   let bytesSinceLastCalc = 0
@@ -247,7 +219,6 @@ ipcMain.on('send-file', (event, data: { filePath: string, targetIp: string }) =>
   readStream.on('data', (chunk) => {
     sentBytes += chunk.length
     bytesSinceLastCalc += chunk.length
-    
     const now = Date.now()
     const timeDiff = (now - lastTime) / 1000
 
@@ -255,15 +226,30 @@ ipcMain.on('send-file', (event, data: { filePath: string, targetIp: string }) =>
       const speedBps = bytesSinceLastCalc / timeDiff
       const speedMBps = (speedBps / (1024 * 1024)).toFixed(2)
       const progress = totalSize > 0 ? Math.round((sentBytes / totalSize) * 100) : 0
-
       win?.webContents.send('send-progress', { progress, speed: speedMBps })
-
       lastTime = now
       bytesSinceLastCalc = 0
     }
   })
 
   readStream.pipe(req)
+})
+
+// --- HITO 5: Lógica de la Configuración (Settings) ---
+ipcMain.on('get-settings', () => {
+  win?.webContents.send('settings-loaded', {
+    alias: store.get('alias'),
+    downloadPath: store.get('downloadPath')
+  })
+})
+
+ipcMain.on('save-settings', (event, newAlias: string) => {
+  store.set('alias', newAlias)
+  // Avisamos que se guardó devolviendo la data actualizada
+  win?.webContents.send('settings-loaded', {
+    alias: store.get('alias'),
+    downloadPath: store.get('downloadPath')
+  })
 })
 
 ipcMain.on('drop-files', (event, filePaths) => {
@@ -278,9 +264,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow()
-  }
+  if (BrowserWindow.getAllWindows().length === 0) createWindow()
 })
 
 app.whenReady().then(() => {
