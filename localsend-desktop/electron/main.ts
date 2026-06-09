@@ -43,7 +43,7 @@ function createWindow() {
   }
 }
 
-// --- HITO 1: Radar UDP ---
+// --- HITO 1: Radar UDP (Actualizado con Ping y Scanner) ---
 function startUDPServer() {
   const udpServer = dgram.createSocket('udp4')
 
@@ -53,7 +53,10 @@ function startUDPServer() {
   })
 
   udpServer.on('message', (msg, rinfo) => {
-    if (msg.toString() === 'LOCALSEND_DISCOVERY') {
+    const text = msg.toString()
+
+    // 1. Si alguien grita buscando equipos, le respondemos con nuestros datos
+    if (text === 'LOCALSEND_DISCOVERY') {
       const responseInfo = {
         alias: os.hostname(), 
         deviceType: 'desktop',
@@ -61,36 +64,59 @@ function startUDPServer() {
       }
       const responseBuffer = Buffer.from(JSON.stringify(responseInfo))
       udpServer.send(responseBuffer, 0, responseBuffer.length, rinfo.port, rinfo.address)
+    } 
+    // 2. Si recibimos un JSON, significa que alguien nos respondió
+    else {
+      try {
+        const data = JSON.parse(text)
+        if (data.alias && data.deviceType) {
+          // Le avisamos a la vista de React que encontramos un equipo (incluyéndonos a nosotros mismos)
+          win?.webContents.send('device-found', {
+            alias: data.alias,
+            ip: rinfo.address, // La IP real de donde vino el mensaje
+            deviceType: data.deviceType
+          })
+        }
+      } catch (error) {
+        // Si el mensaje no es un JSON válido, lo ignoramos para que no crashee
+      }
     }
   })
 
   udpServer.bind(53317, () => {
     console.log('🟢 Servidor UDP escuchando en el puerto 53317 (Radar Activo)')
+    
+    // --- EL RADAR ACTIVO ---
+    // Le damos permiso al socket de Windows para mandar mensajes a toda la red (Broadcast)
+    udpServer.setBroadcast(true)
+
+    // Cada 3 segundos mandamos un pulso preguntando "¿Quién está ahí?"
+    setInterval(() => {
+      const ping = Buffer.from('LOCALSEND_DISCOVERY')
+      udpServer.send(ping, 0, ping.length, 53317, '255.255.255.255')
+    }, 3000)
   })
 }
 
-// --- HITO 3: Servidor TCP (Ahora con Handshake y Parche Visual) ---
+// --- HITO 3: Servidor TCP (Receptor) ---
 function startFileServer() {
   const fileServer = http.createServer((req, res) => {
     if (req.method === 'POST') {
       const fileName = req.headers['x-file-name'] as string || 'archivo_desconocido'
       const totalSize = parseInt(req.headers['content-length'] as string || '0', 10)
       
-      // BLINDAJE: Frenamos el flujo TCP en seco
       req.pause()
       
-      // Le avisamos a React que alguien quiere mandar algo
       if (win) {
         win.webContents.send('ask-confirmation', { fileName, size: totalSize })
       }
 
-      // Esperamos que el usuario toque un botón en la interfaz
       ipcMain.once('transfer-response', (event, response) => {
         if (response === 'reject') {
           console.log('❌ Transferencia rechazada por el usuario.')
           res.writeHead(403, { 'Content-Type': 'text/plain' })
           res.end('Transferencia rechazada')
-          req.destroy() // Cortamos la conexión
+          req.destroy()
           return
         }
 
@@ -109,15 +135,12 @@ function startFileServer() {
           new Notification({ title: 'Recibiendo archivo...', body: path.basename(finalPath) }).show()
         }
 
-        // --- EL PARCHE VISUAL ---
-        // Forzamos la aparición de la barra en 0% apenas tocamos Aceptar
         win?.webContents.send('transfer-progress', {
           fileName: path.basename(finalPath),
           progress: 0,
           speed: '0.00',
           eta: 0
         })
-        // ------------------------
 
         const writeStream = fs.createWriteStream(finalPath)
         let receivedBytes = 0
@@ -145,7 +168,6 @@ function startFileServer() {
           }
         })
 
-        // Soltamos el freno de mano y conectamos la tubería al disco duro
         req.pipe(writeStream)
         req.resume()
 
@@ -180,6 +202,69 @@ function startFileServer() {
     console.log('🔵 Servidor TCP/HTTP escuchando archivos en el puerto 53318')
   })
 }
+
+// --- HITO 4: El Cañón Emisor (Mandar archivos a otros) ---
+ipcMain.on('send-file', (event, data: { filePath: string, targetIp: string }) => {
+  const { filePath, targetIp } = data
+  const fileName = path.basename(filePath)
+  const stat = fs.statSync(filePath)
+  const totalSize = stat.size
+
+  console.log(`🚀 Iniciando envío de ${fileName} hacia ${targetIp}`)
+
+  const options = {
+    hostname: targetIp,
+    port: 53318,
+    path: '/',
+    method: 'POST',
+    headers: {
+      'x-file-name': encodeURIComponent(fileName),
+      'content-length': totalSize
+    }
+  }
+
+  const req = http.request(options, (res) => {
+    if (res.statusCode === 200) {
+      console.log('✅ Archivo enviado y aceptado por el receptor.')
+      win?.webContents.send('send-complete', { status: 'success' })
+    } else if (res.statusCode === 403) {
+      console.log('❌ El receptor rechazó el archivo.')
+      win?.webContents.send('send-complete', { status: 'error', message: 'El usuario rechazó la transferencia' })
+    }
+  })
+
+  req.on('error', (e) => {
+    console.error(`❌ Error al conectar con el equipo: ${e.message}`)
+    win?.webContents.send('send-complete', { status: 'error', message: 'No se pudo conectar con el dispositivo' })
+  })
+
+  const readStream = fs.createReadStream(filePath)
+  
+  let sentBytes = 0
+  let lastTime = Date.now()
+  let bytesSinceLastCalc = 0
+
+  readStream.on('data', (chunk) => {
+    sentBytes += chunk.length
+    bytesSinceLastCalc += chunk.length
+    
+    const now = Date.now()
+    const timeDiff = (now - lastTime) / 1000
+
+    if (timeDiff >= 0.5) {
+      const speedBps = bytesSinceLastCalc / timeDiff
+      const speedMBps = (speedBps / (1024 * 1024)).toFixed(2)
+      const progress = totalSize > 0 ? Math.round((sentBytes / totalSize) * 100) : 0
+
+      win?.webContents.send('send-progress', { progress, speed: speedMBps })
+
+      lastTime = now
+      bytesSinceLastCalc = 0
+    }
+  })
+
+  readStream.pipe(req)
+})
 
 ipcMain.on('drop-files', (event, filePaths) => {
   console.log('📦 Rutas de archivos atajadas desde React:', filePaths)

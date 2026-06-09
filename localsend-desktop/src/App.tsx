@@ -25,7 +25,6 @@ function App() {
   const [stats, setStats] = useState<TransferStats | null>(null)
   const [errorMessage, setErrorMessage] = useState('')
   
-  // NUEVO ESTADO: Para guardar quién nos quiere mandar algo
   const [incomingRequest, setIncomingRequest] = useState<{fileName: string, size: number} | null>(null)
 
   useEffect(() => {
@@ -34,14 +33,12 @@ function App() {
         setDevices((prev) => {
           const exists = prev.find(d => d.ip === newDevice.ip)
           if (exists) {
-            // Actualizamos la hora de vida
             return prev.map(d => d.ip === newDevice.ip ? { ...d, lastSeen: Date.now() } : d)
           }
           return [...prev, { ...newDevice, lastSeen: Date.now() }]
         })
       })
 
-      // Atajamos el Handshake
       window.ipcRenderer.on('ask-confirmation', (fileData: {fileName: string, size: number}) => {
         setIncomingRequest(fileData)
       })
@@ -63,9 +60,18 @@ function App() {
           }, 5000)
         }
       })
+      
+      // Manejadores para la visualización del emisor (opcional para la UI, pero bueno tenerlo)
+      window.ipcRenderer.on('send-complete', (result: { status: 'success'|'error', message?: string }) => {
+          if(result.status === 'success') {
+              alert('¡Archivo enviado con éxito!')
+          } else {
+              alert(`Error al enviar: ${result.message}`)
+          }
+          setDroppedFiles([]) // Limpiamos la zona de drop
+      })
     }
 
-    // EL BLINDAJE DEL TTL: Limpiar equipos que llevan más de 6 segundos sin dar señal
     const interval = setInterval(() => {
       const now = Date.now()
       setDevices(prev => prev.filter(device => (now - device.lastSeen) < 6000))
@@ -97,15 +103,28 @@ function App() {
     }
   }
 
-  // Funciones para los botones de Aceptar/Rechazar
   const respondTransfer = (response: 'accept' | 'reject') => {
     window.ipcRenderer.send('transfer-response', response)
     setIncomingRequest(null)
   }
 
+  // --- NUEVA FUNCIÓN: El Gatillo ---
+  const handleSendToDevice = (targetIp: string) => {
+    if (droppedFiles.length === 0) {
+      alert('Primero arrastrá un archivo a la zona punteada.')
+      return
+    }
+    
+    if (window.ipcRenderer) {
+      window.ipcRenderer.send('send-file', { 
+        filePath: droppedFiles[0], 
+        targetIp: targetIp 
+      })
+    }
+  }
+
   return (
     <div className="app-container">
-      {/* Modal Oscuro de Confirmación */}
       {incomingRequest && (
         <div className="modal-overlay">
           <div className="modal-content">
@@ -164,7 +183,13 @@ function App() {
               <p className="no-devices">Buscando dispositivos...</p>
             ) : (
               devices.map((device, index) => (
-                <div key={index} className="device-item">
+                <div 
+                  key={index} 
+                  className="device-item" 
+                  onClick={() => handleSendToDevice(device.ip)}
+                  style={{ cursor: droppedFiles.length > 0 ? 'pointer' : 'not-allowed' }}
+                  title={droppedFiles.length > 0 ? 'Clic para enviar archivo' : 'Arrastrá un archivo primero'}
+                >
                   📱 <strong>{device.alias}</strong> ({device.ip})
                 </div>
               ))
