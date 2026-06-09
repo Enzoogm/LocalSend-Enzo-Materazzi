@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Notification, dialog } from 'electron' // <-- AGREGAMOS dialog
+import { app, BrowserWindow, ipcMain, Notification, dialog } from 'electron' 
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
@@ -250,7 +250,6 @@ ipcMain.on('save-settings', (event, newAlias: string) => {
   })
 })
 
-// NUEVO: Abrir ventana de Windows para elegir carpeta
 ipcMain.on('select-folder', async () => {
   if (!win) return
   const result = await dialog.showOpenDialog(win, {
