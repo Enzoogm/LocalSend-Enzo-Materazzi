@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Notification } from 'electron'
+import { app, BrowserWindow, ipcMain, Notification, dialog } from 'electron' // <-- AGREGAMOS dialog
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
@@ -6,7 +6,7 @@ import dgram from 'node:dgram'
 import os from 'node:os'
 import http from 'node:http'
 import fs from 'node:fs'
-import Store from 'electron-store' // <-- NUESTRA MEMORIA
+import Store from 'electron-store' 
 
 const require = createRequire(import.meta.url)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -24,7 +24,7 @@ let win: BrowserWindow | null
 // Inicializamos la base de datos local
 const store = new Store({
   defaults: {
-    alias: os.hostname(), // Por defecto usa el de Windows
+    alias: os.hostname(), 
     downloadPath: app.getPath('downloads')
   }
 })
@@ -66,7 +66,7 @@ function startUDPServer() {
 
     if (text === 'LOCALSEND_DISCOVERY') {
       const responseInfo = {
-        alias: store.get('alias') as string, // AHORA LEE DE LA MEMORIA
+        alias: store.get('alias') as string,
         deviceType: 'desktop',
         tcpPort: 53318 
       }
@@ -118,7 +118,6 @@ function startFileServer() {
           return
         }
 
-        // LEEMOS LA CARPETA DESDE LA MEMORIA
         const currentDownloadPath = store.get('downloadPath') as string
         let finalPath = path.join(currentDownloadPath, fileName)
         let counter = 1
@@ -245,11 +244,28 @@ ipcMain.on('get-settings', () => {
 
 ipcMain.on('save-settings', (event, newAlias: string) => {
   store.set('alias', newAlias)
-  // Avisamos que se guardó devolviendo la data actualizada
   win?.webContents.send('settings-loaded', {
     alias: store.get('alias'),
     downloadPath: store.get('downloadPath')
   })
+})
+
+// NUEVO: Abrir ventana de Windows para elegir carpeta
+ipcMain.on('select-folder', async () => {
+  if (!win) return
+  const result = await dialog.showOpenDialog(win, {
+    properties: ['openDirectory'] 
+  })
+  
+  if (!result.canceled && result.filePaths.length > 0) {
+    const newPath = result.filePaths[0]
+    store.set('downloadPath', newPath) 
+    
+    win.webContents.send('settings-loaded', {
+      alias: store.get('alias'),
+      downloadPath: store.get('downloadPath')
+    })
+  }
 })
 
 ipcMain.on('drop-files', (event, filePaths) => {

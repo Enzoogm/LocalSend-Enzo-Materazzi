@@ -135,6 +135,13 @@ function App() {
     }
   }
 
+  // NUEVO: Función para gatillar la ventana de Windows
+  const handleSelectFolder = () => {
+    if (window.ipcRenderer) {
+      window.ipcRenderer.send('select-folder')
+    }
+  }
+
   return (
     <div className="app-container">
       
@@ -154,13 +161,23 @@ function App() {
             </div>
             <div style={{ marginBottom: '20px' }}>
               <label className="settings-label">Carpeta de descargas:</label>
-              <input 
-                type="text" 
-                value={currentSettings.downloadPath} 
-                disabled
-                className="settings-input"
-              />
-              <small style={{ color: '#aaa', display: 'block', textAlign: 'left', marginTop: '5px' }}>*La ruta de descargas es de solo lectura por ahora.</small>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <input 
+                  type="text" 
+                  value={currentSettings.downloadPath} 
+                  disabled
+                  className="settings-input"
+                  style={{ flex: 1 }}
+                />
+                <button 
+                  onClick={handleSelectFolder}
+                  style={{ padding: '0 15px', borderRadius: '6px', border: 'none', backgroundColor: '#646cff', color: 'white', cursor: 'pointer', fontWeight: 'bold', transition: 'background 0.2s' }}
+                  onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#535bf2'}
+                  onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#646cff'}
+                >
+                  Cambiar
+                </button>
+              </div>
             </div>
             <div className="modal-actions">
               <button className="btn-reject" onClick={() => setShowSettings(false)}>Cancelar</button>
