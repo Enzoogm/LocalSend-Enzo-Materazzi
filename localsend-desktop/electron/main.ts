@@ -1,5 +1,4 @@
 import { app, BrowserWindow, ipcMain, Notification, dialog } from 'electron' 
-import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import dgram from 'node:dgram'
@@ -8,7 +7,6 @@ import http from 'node:http'
 import fs from 'node:fs'
 import Store from 'electron-store' 
 
-const require = createRequire(import.meta.url)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 process.env.APP_ROOT = path.join(__dirname, '..')
@@ -17,7 +15,8 @@ export const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 export const MAIN_DIST = path.join(process.env.APP_ROOT, 'dist-electron')
 export const RENDERER_DIST = path.join(process.env.APP_ROOT, 'dist')
 
-process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 'public') : RENDERER_DIST
+const vitePublicDir = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 'public') : RENDERER_DIST
+process.env.VITE_PUBLIC = vitePublicDir
 
 let win: BrowserWindow | null
 
@@ -33,7 +32,7 @@ function createWindow() {
   win = new BrowserWindow({
     width: 900,
     height: 700,
-    icon: path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'),
+    icon: path.join(vitePublicDir, 'electron-vite.svg'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
       contextIsolation: true,
@@ -110,7 +109,7 @@ function startFileServer() {
         win.webContents.send('ask-confirmation', { fileName, size: totalSize })
       }
 
-      ipcMain.once('transfer-response', (event, response) => {
+      ipcMain.once('transfer-response', (_event, response) => {
         if (response === 'reject') {
           res.writeHead(403, { 'Content-Type': 'text/plain' })
           res.end('Transferencia rechazada')
@@ -168,13 +167,13 @@ function startFileServer() {
           res.end('Archivo recibido con éxito')
         })
 
-        writeStream.on('error', (err) => {
+        writeStream.on('error', () => {
           win?.webContents.send('transfer-complete', { status: 'error', message: 'Error de escritura' })
           res.writeHead(500)
           res.end('Error interno')
         })
 
-        req.on('error', (err) => {
+        req.on('error', () => {
           writeStream.destroy() 
           win?.webContents.send('transfer-complete', { status: 'error', message: 'Conexión interrumpida' })
         })
@@ -192,7 +191,7 @@ function startFileServer() {
 }
 
 // --- HITO 4: El Cañón Emisor ---
-ipcMain.on('send-file', (event, data: { filePath: string, targetIp: string }) => {
+ipcMain.on('send-file', (_event, data: { filePath: string, targetIp: string }) => {
   const { filePath, targetIp } = data
   const fileName = path.basename(filePath)
   const stat = fs.statSync(filePath)
@@ -208,7 +207,7 @@ ipcMain.on('send-file', (event, data: { filePath: string, targetIp: string }) =>
     else if (res.statusCode === 403) win?.webContents.send('send-complete', { status: 'error', message: 'El usuario rechazó la transferencia' })
   })
 
-  req.on('error', (e) => win?.webContents.send('send-complete', { status: 'error', message: 'No se pudo conectar' }))
+  req.on('error', () => win?.webContents.send('send-complete', { status: 'error', message: 'No se pudo conectar' }))
 
   const readStream = fs.createReadStream(filePath)
   let sentBytes = 0
@@ -242,7 +241,7 @@ ipcMain.on('get-settings', () => {
   })
 })
 
-ipcMain.on('save-settings', (event, newAlias: string) => {
+ipcMain.on('save-settings', (_event, newAlias: string) => {
   store.set('alias', newAlias)
   win?.webContents.send('settings-loaded', {
     alias: store.get('alias'),
@@ -267,7 +266,7 @@ ipcMain.on('select-folder', async () => {
   }
 })
 
-ipcMain.on('drop-files', (event, filePaths) => {
+ipcMain.on('drop-files', (_event, filePaths) => {
   console.log('📦 Rutas de archivos atajadas desde React:', filePaths)
 })
 

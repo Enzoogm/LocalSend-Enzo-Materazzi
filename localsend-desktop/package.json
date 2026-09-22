@@ -2,10 +2,13 @@
   "name": "localsend-desktop",
   "private": true,
   "version": "0.0.0",
+  "description": "LocalSend desktop app for local network file transfer",
+  "author": "Enzo Materazzi",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build && electron-builder",
+    "build:win": "electron-builder --win portable --config.win.sign=false --config.win.signAndEditExecutable=false",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview"
   },

@@ -1,9 +1,9 @@
 // @see - https://www.electron.build/configuration/configuration
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
-  "appId": "YourAppID",
+  "appId": "com.localsend.desktop",
   "asar": true,
-  "productName": "YourAppName",
+  "productName": "LocalSend Desktop",
   "directories": {
     "output": "release/${version}"
   },
@@ -20,13 +20,23 @@
   "win": {
     "target": [
       {
+        "target": "portable",
+        "arch": [
+          "x64"
+        ]
+      },
+      {
         "target": "nsis",
         "arch": [
           "x64"
         ]
       }
     ],
-    "artifactName": "${productName}-Windows-${version}-Setup.${ext}"
+    "signAndEditExecutable": false,
+    "artifactName": "${productName}-Windows-${version}.${ext}"
+  },
+  "portable": {
+    "artifactName": "${productName}-Portable-${version}.${ext}"
   },
   "nsis": {
     "oneClick": false,

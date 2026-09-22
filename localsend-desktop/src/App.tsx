@@ -16,7 +16,7 @@ interface TransferStats {
 }
 
 function App() {
-  const [isListening, setIsListening] = useState(true)
+  const [isListening] = useState(true)
   const [isDragging, setIsDragging] = useState(false)
   const [devices, setDevices] = useState<Device[]>([])
   const [droppedFiles, setDroppedFiles] = useState<string[]>([]) 
@@ -26,45 +26,63 @@ function App() {
   const [errorMessage, setErrorMessage] = useState('')
   const [incomingRequest, setIncomingRequest] = useState<{fileName: string, size: number} | null>(null)
 
-  // ESTADOS PARA LA CONFIGURACIÓN
+  // ESTADOS PARA LA CONFIGURACIÓN (con valores por defecto seguros)
   const [showSettings, setShowSettings] = useState(false)
-  const [currentSettings, setCurrentSettings] = useState({ alias: '', downloadPath: '' })
+  const [currentSettings, setCurrentSettings] = useState({ alias: 'Cargando...', downloadPath: '' })
   const [aliasInput, setAliasInput] = useState('')
 
   useEffect(() => {
     if (window.ipcRenderer) {
       window.ipcRenderer.send('get-settings')
 
-      window.ipcRenderer.on('settings-loaded', (data: any) => {
-        setCurrentSettings(data)
-        setAliasInput(data.alias)
+      // Listener ultra-defensivo: toma args[1] si viene con event, o args[0] si viene directo
+      window.ipcRenderer.on('settings-loaded', (...args: any[]) => {
+        const payload = args.length > 1 && args[1] !== undefined ? args[1] : args[0]
+        if (payload && typeof payload === 'object') {
+          const safeAlias = payload.alias || 'Equipo Local'
+          const safePath = payload.downloadPath || ''
+          setCurrentSettings({ alias: safeAlias, downloadPath: safePath })
+          setAliasInput(safeAlias)
+        }
         setShowSettings(false) 
       })
 
-      window.ipcRenderer.on('device-found', (newDevice: Omit<Device, 'lastSeen'>) => {
+      window.ipcRenderer.on('device-found', (...args: any[]) => {
+        const payload = args.length > 1 && args[1] !== undefined ? args[1] : args[0]
+        if (!payload || !payload.ip) return
+
         setDevices((prev) => {
-          const exists = prev.find(d => d.ip === newDevice.ip)
+          const exists = prev.find(d => d && d.ip === payload.ip)
           if (exists) {
-            return prev.map(d => d.ip === newDevice.ip ? { ...d, lastSeen: Date.now() } : d)
+            return prev.map(d => (d && d.ip === payload.ip) ? { ...d, lastSeen: Date.now() } : d)
           }
-          return [...prev, { ...newDevice, lastSeen: Date.now() }]
+          return [...prev, { ...payload, lastSeen: Date.now() }]
         })
       })
 
-      window.ipcRenderer.on('ask-confirmation', (fileData: {fileName: string, size: number}) => {
-        setIncomingRequest(fileData)
+      window.ipcRenderer.on('ask-confirmation', (...args: any[]) => {
+        const payload = args.length > 1 && args[1] !== undefined ? args[1] : args[0]
+        if (payload && payload.fileName) {
+          setIncomingRequest(payload)
+        }
       })
 
-      window.ipcRenderer.on('transfer-progress', (data: TransferStats) => {
-        setTransferStatus('transferring')
-        setStats(data)
+      window.ipcRenderer.on('transfer-progress', (...args: any[]) => {
+        const payload = args.length > 1 && args[1] !== undefined ? args[1] : args[0]
+        if (payload && payload.fileName !== undefined) {
+          setTransferStatus('transferring')
+          setStats(payload)
+        }
       })
 
-      window.ipcRenderer.on('transfer-complete', (result: { status: 'success'|'error', path?: string, message?: string }) => {
-        setTransferStatus(result.status)
-        if (result.status === 'error' && result.message) {
-          setErrorMessage(result.message)
-        } else if (result.status === 'success') {
+      window.ipcRenderer.on('transfer-complete', (...args: any[]) => {
+        const payload = args.length > 1 && args[1] !== undefined ? args[1] : args[0]
+        if (!payload) return
+
+        setTransferStatus(payload.status)
+        if (payload.status === 'error' && payload.message) {
+          setErrorMessage(payload.message)
+        } else if (payload.status === 'success') {
           setStats(prev => prev ? { ...prev, progress: 100, speed: '0.00', eta: 0 } : null)
           setTimeout(() => {
             setTransferStatus('idle')
@@ -73,19 +91,22 @@ function App() {
         }
       })
       
-      window.ipcRenderer.on('send-complete', (result: { status: 'success'|'error', message?: string }) => {
-          if(result.status === 'success') {
-              alert('¡Archivo enviado con éxito!')
-          } else {
-              alert(`Error al enviar: ${result.message}`)
-          }
-          setDroppedFiles([]) 
+      window.ipcRenderer.on('send-complete', (...args: any[]) => {
+        const payload = args.length > 1 && args[1] !== undefined ? args[1] : args[0]
+        if (!payload) return
+
+        if (payload.status === 'success') {
+          alert('¡Archivo enviado con éxito!')
+        } else {
+          alert(`Error al enviar: ${payload.message || 'Error desconocido'}`)
+        }
+        setDroppedFiles([]) 
       })
     }
 
     const interval = setInterval(() => {
       const now = Date.now()
-      setDevices(prev => prev.filter(device => (now - device.lastSeen) < 6000))
+      setDevices(prev => prev.filter(device => device && (now - device.lastSeen) < 6000))
     }, 3000)
 
     return () => clearInterval(interval)
@@ -115,7 +136,9 @@ function App() {
   }
 
   const respondTransfer = (response: 'accept' | 'reject') => {
-    window.ipcRenderer.send('transfer-response', response)
+    if (window.ipcRenderer) {
+      window.ipcRenderer.send('transfer-response', response)
+    }
     setIncomingRequest(null)
   }
 
@@ -135,7 +158,6 @@ function App() {
     }
   }
 
-  // NUEVO: Función para gatillar la ventana de Windows
   const handleSelectFolder = () => {
     if (window.ipcRenderer) {
       window.ipcRenderer.send('select-folder')
@@ -164,16 +186,14 @@ function App() {
               <div style={{ display: 'flex', gap: '10px' }}>
                 <input 
                   type="text" 
-                  value={currentSettings.downloadPath} 
+                  value={currentSettings?.downloadPath || ''} 
                   disabled
                   className="settings-input"
                   style={{ flex: 1 }}
                 />
                 <button 
                   onClick={handleSelectFolder}
-                  style={{ padding: '0 15px', borderRadius: '6px', border: 'none', backgroundColor: '#646cff', color: 'white', cursor: 'pointer', fontWeight: 'bold', transition: 'background 0.2s' }}
-                  onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#535bf2'}
-                  onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#646cff'}
+                  style={{ padding: '0 15px', borderRadius: '6px', border: 'none', backgroundColor: '#646cff', color: 'white', cursor: 'pointer', fontWeight: 'bold' }}
                 >
                   Cambiar
                 </button>
@@ -193,8 +213,8 @@ function App() {
           <div className="modal-content">
             <h2>Solicitud de Transferencia</h2>
             <p>Alguien quiere enviarte el archivo:</p>
-            <p className="file-name">{incomingRequest.fileName}</p>
-            <p className="file-size">Peso: {(incomingRequest.size / (1024 * 1024)).toFixed(2)} MB</p>
+            <p className="file-name">{incomingRequest?.fileName}</p>
+            <p className="file-size">Peso: {incomingRequest?.size ? (incomingRequest.size / (1024 * 1024)).toFixed(2) : '0'} MB</p>
             <div className="modal-actions">
               <button className="btn-reject" onClick={() => respondTransfer('reject')}>Rechazar</button>
               <button className="btn-accept" onClick={() => respondTransfer('accept')}>Aceptar</button>
@@ -208,14 +228,12 @@ function App() {
           <h1>LocalSend</h1>
           <div className="status-indicator">
             <span className={`led ${isListening ? 'led-green' : 'led-red'}`}></span>
-            {isListening ? `Activo como: ${currentSettings.alias}` : 'Servidor Apagado'}
+            {isListening ? `Activo como: ${currentSettings?.alias || 'Iniciando...'}` : 'Servidor Apagado'}
           </div>
         </div>
         <button 
           onClick={() => setShowSettings(true)}
-          style={{ background: '#242424', border: '1px solid #444', color: '#fff', padding: '10px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', transition: 'background 0.2s' }}
-          onMouseOver={(e) => e.currentTarget.style.background = '#333'}
-          onMouseOut={(e) => e.currentTarget.style.background = '#242424'}
+          style={{ background: '#242424', border: '1px solid #444', color: '#fff', padding: '10px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}
         >
           ⚙️ Ajustes
         </button>
@@ -225,13 +243,13 @@ function App() {
         {transferStatus !== 'idle' && stats && (
           <div className="transfer-monitor">
             <h3>📥 Recibiendo archivo...</h3>
-            <p className="file-name">{stats.fileName}</p>
+            <p className="file-name">{stats?.fileName}</p>
             <div className="progress-container">
-              <div className={`progress-bar ${transferStatus === 'error' ? 'error' : ''}`} style={{ width: `${stats.progress}%` }}></div>
+              <div className={`progress-bar ${transferStatus === 'error' ? 'error' : ''}`} style={{ width: `${stats?.progress || 0}%` }}></div>
             </div>
             <div className="transfer-details">
-              <span>{stats.progress}% Completado</span>
-              {transferStatus === 'transferring' && <span>🚀 {stats.speed} MB/s</span>}
+              <span>{stats?.progress || 0}% Completado</span>
+              {transferStatus === 'transferring' && <span>🚀 {stats?.speed} MB/s</span>}
               {transferStatus === 'success' && <span style={{color: '#4ade80'}}>¡Transferencia completada!</span>}
               {transferStatus === 'error' && <span style={{color: '#f87171'}}>Error: {errorMessage}</span>}
             </div>
@@ -255,15 +273,15 @@ function App() {
             {devices.length === 0 ? (
               <p className="no-devices">Buscando dispositivos...</p>
             ) : (
-              devices.map((device, index) => (
+              devices.filter(Boolean).map((device, index) => (
                 <div 
                   key={index} 
                   className="device-item" 
-                  onClick={() => handleSendToDevice(device.ip)}
+                  onClick={() => device?.ip && handleSendToDevice(device.ip)}
                   style={{ cursor: droppedFiles.length > 0 ? 'pointer' : 'not-allowed' }}
                   title={droppedFiles.length > 0 ? 'Clic para enviar archivo' : 'Arrastrá un archivo primero'}
                 >
-                  📱 <strong>{device.alias}</strong> ({device.ip})
+                  📱 <strong>{device?.alias || 'Dispositivo'}</strong> ({device?.ip})
                 </div>
               ))
             )}
