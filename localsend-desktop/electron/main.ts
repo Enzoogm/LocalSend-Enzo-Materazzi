@@ -82,7 +82,7 @@ function startUDPServer() {
             deviceType: data.deviceType
           })
         }
-      } catch (error) {}
+      } catch (_error) {}
     }
   })
 
@@ -96,11 +96,19 @@ function startUDPServer() {
   })
 }
 
-// --- HITO 3: Servidor TCP (Receptor) ---
+// --- HITO 3: Servidor TCP (Receptor) Blindado ---
 function startFileServer() {
   const fileServer = http.createServer((req, res) => {
     if (req.method === 'POST') {
-      const fileName = req.headers['x-file-name'] as string || 'archivo_desconocido'
+      let fileName = 'archivo_desconocido'
+      if (req.headers['x-file-name']) {
+        try {
+          fileName = decodeURIComponent(req.headers['x-file-name'] as string)
+        } catch (_e) {
+          fileName = req.headers['x-file-name'] as string
+        }
+      }
+
       const totalSize = parseInt(req.headers['content-length'] as string || '0', 10)
       
       req.pause()
@@ -139,8 +147,39 @@ function startFileServer() {
         let receivedBytes = 0
         let lastTime = Date.now()
         let bytesSinceLastCalc = 0
+        let isFinished = false
+        let isAborted = false
+
+        // Temporizador de inactividad: si pasan 15s sin bytes recibidos, se asume corte
+        let inactivityTimer: NodeJS.Timeout | null = null
+        const resetInactivityTimer = () => {
+          if (inactivityTimer) clearTimeout(inactivityTimer)
+          inactivityTimer = setTimeout(() => {
+            console.log('⚠️ Conexión inactiva por más de 15 segundos (desconexión detectada)')
+            req.destroy(new Error('Timeout de red'))
+          }, 15000)
+        }
+        resetInactivityTimer()
+
+        // Rollback seguro: espera a que Windows libere el descriptor de archivo
+        const cleanupIncompleteFile = () => {
+          if (isFinished || isAborted) return
+          isAborted = true
+          if (inactivityTimer) clearTimeout(inactivityTimer)
+
+          writeStream.destroy()
+          setTimeout(() => {
+            if (fs.existsSync(finalPath)) {
+              try {
+                fs.unlinkSync(finalPath)
+                console.log('🧹 Archivo parcial eliminado por corte:', finalPath)
+              } catch (_e) {}
+            }
+          }, 200)
+        }
 
         req.on('data', (chunk) => {
+          resetInactivityTimer()
           receivedBytes += chunk.length
           bytesSinceLastCalc += chunk.length
           const now = Date.now()
@@ -162,20 +201,43 @@ function startFileServer() {
         req.resume()
 
         writeStream.on('finish', () => {
+          if (isAborted) return
+          isFinished = true
+          if (inactivityTimer) clearTimeout(inactivityTimer)
+
           win?.webContents.send('transfer-complete', { status: 'success', path: finalPath })
-          res.writeHead(200)
-          res.end('Archivo recibido con éxito')
+          if (!res.headersSent) {
+            res.writeHead(200)
+            res.end('Archivo recibido con éxito')
+          }
         })
 
-        writeStream.on('error', () => {
-          win?.webContents.send('transfer-complete', { status: 'error', message: 'Error de escritura' })
-          res.writeHead(500)
-          res.end('Error interno')
+        writeStream.on('error', (err) => {
+          console.error('❌ Error en writeStream:', err)
+          if (!isFinished && !isAborted) {
+            cleanupIncompleteFile()
+            win?.webContents.send('transfer-complete', { status: 'error', message: 'Error de escritura en disco' })
+            if (!res.headersSent) {
+              res.writeHead(500)
+              res.end('Error interno de disco')
+            }
+          }
         })
 
-        req.on('error', () => {
-          writeStream.destroy() 
-          win?.webContents.send('transfer-complete', { status: 'error', message: 'Conexión interrumpida' })
+        req.on('error', (_err) => {
+          if (!isFinished) {
+            cleanupIncompleteFile()
+            win?.webContents.send('transfer-complete', { status: 'error', message: 'Conexión interrumpida (archivo descartado)' })
+          }
+        })
+
+        req.on('close', () => {
+          if (inactivityTimer) clearTimeout(inactivityTimer)
+          // Solo borra si la cantidad de bytes recibidos fue inferior al total esperado
+          if (!isFinished && totalSize > 0 && receivedBytes < totalSize) {
+            cleanupIncompleteFile()
+            win?.webContents.send('transfer-complete', { status: 'error', message: 'Transferencia cancelada por desconexión' })
+          }
         })
       })
 
@@ -198,8 +260,14 @@ ipcMain.on('send-file', (_event, data: { filePath: string, targetIp: string }) =
   const totalSize = stat.size
 
   const options = {
-    hostname: targetIp, port: 53318, path: '/', method: 'POST',
-    headers: { 'x-file-name': encodeURIComponent(fileName), 'content-length': totalSize }
+    hostname: targetIp, 
+    port: 53318, 
+    path: '/', 
+    method: 'POST',
+    headers: { 
+      'x-file-name': encodeURIComponent(fileName), 
+      'content-length': totalSize 
+    }
   }
 
   const req = http.request(options, (res) => {
@@ -207,7 +275,12 @@ ipcMain.on('send-file', (_event, data: { filePath: string, targetIp: string }) =
     else if (res.statusCode === 403) win?.webContents.send('send-complete', { status: 'error', message: 'El usuario rechazó la transferencia' })
   })
 
-  req.on('error', () => win?.webContents.send('send-complete', { status: 'error', message: 'No se pudo conectar' }))
+  // Watchdog de 15s para el emisor
+  req.setTimeout(15000, () => {
+    req.destroy(new Error('Timeout de red'))
+  })
+
+  req.on('error', (_e) => win?.webContents.send('send-complete', { status: 'error', message: 'No se pudo conectar o se cortó la red' }))
 
   const readStream = fs.createReadStream(filePath)
   let sentBytes = 0
@@ -233,7 +306,7 @@ ipcMain.on('send-file', (_event, data: { filePath: string, targetIp: string }) =
   readStream.pipe(req)
 })
 
-// --- HITO 5: Lógica de la Configuración (Settings) ---
+// --- HITO 5: Configuración (Settings) ---
 ipcMain.on('get-settings', () => {
   win?.webContents.send('settings-loaded', {
     alias: store.get('alias'),
